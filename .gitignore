@@ -1,0 +1,33 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.exe
+harness/build/
+monitor/build/
+
+# ML models and data
+predictor/data/raw_runs/*
+!predictor/data/raw_runs/.gitkeep
+predictor/data/training_data.csv
+predictor/models/*.pkl
+!predictor/models/.gitkeep
+
+# Runtime status and logs
+status/*.json
+!status/.gitkeep
+logs/*.log
+!logs/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+.pytest_cache/
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

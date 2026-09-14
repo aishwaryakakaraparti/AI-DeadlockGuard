@@ -1,0 +1,6 @@
+WAIT tid=1001 resource=mutex_A
+HOLD tid=1001 resource=mutex_A
+WAIT tid=1002 resource=mutex_B
+HOLD tid=1002 resource=mutex_B
+WAIT tid=1001 resource=mutex_B
+WAIT tid=1002 resource=mutex_A
