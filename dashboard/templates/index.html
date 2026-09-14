@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI-DeadlockGuard — Live Monitor</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>" />
+</head>
+<body>
+
+<!-- ── Deadlock Alert Banner ─────────────────────────────────────────────── -->
+<div id="deadlockBanner">
+  <span>⚠️</span>
+  <span>DEADLOCK DETECTED — Auto-resolution triggered</span>
+</div>
+
+<!-- ── Navbar ─────────────────────────────────────────────────────────────── -->
+<nav class="navbar">
+  <a class="navbar-brand" href="#">
+    <div class="brand-icon">🛡️</div>
+    <span>AI-DeadlockGuard</span>
+  </a>
+
+  <div class="navbar-right">
+    <!-- Theme Toggle -->
+    <div class="theme-toggle" role="group" aria-label="Theme selector">
+      <button class="theme-btn" data-theme="light" aria-label="Light mode">☀️</button>
+      <button class="theme-btn active" data-theme="dark"  aria-label="Dark mode">🌙</button>
+    </div>
+
+    <!-- Status Badge -->
+    <div id="statusBadge" class="status-badge stopped">
+      <span class="status-dot"></span>
+      <span class="status-text">CONNECTING…</span>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Main Layout ────────────────────────────────────────────────────────── -->
+<div class="main-layout">
+
+  <!-- ── LEFT PANEL ──────────────────────────────────────────────────────── -->
+  <aside class="left-panel">
+
+    <!-- Risk Gauge Card -->
+    <div class="card gauge-card">
+      <div class="card-title">AI Risk Meter</div>
+
+      <div class="gauge-wrapper">
+        <svg class="gauge-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+          <!-- Background track -->
+          <circle class="gauge-bg"
+            cx="100" cy="100" r="90"
+            stroke-dasharray="424.1 141.4"
+            style="transform-origin:center; transform:rotate(135deg)" />
+          <!-- Animated arc -->
+          <circle id="gaugeArc" class="gauge-arc"
+            cx="100" cy="100" r="90"
+            stroke="#10b981"
+            stroke-dasharray="0 565.5"
+            stroke-dashoffset="0" />
+        </svg>
+
+        <div class="gauge-center">
+          <div id="gaugeScore" class="gauge-score" style="color:#10b981">0%</div>
+          <div class="gauge-label">Risk Score</div>
+        </div>
+      </div>
+
+      <div id="gaugeStatus" class="gauge-status safe">SAFE</div>
+    </div>
+
+    <!-- Stat Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Blocked Procs</div>
+        <div id="valBlocked" class="stat-value highlight">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Edge Count</div>
+        <div id="valEdges" class="stat-value highlight">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Wait Growth</div>
+        <div id="valGrowth" class="stat-value highlight">0.000</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Graph Density</div>
+        <div id="valDensity" class="stat-value highlight">0.00000</div>
+      </div>
+    </div>
+
+    <!-- Resolve Button -->
+    <button id="resolveBtn" class="resolve-btn">
+      <span>⚡</span>
+      <span>Resolve Deadlock</span>
+    </button>
+    <div id="resolveFeedback" class="resolve-feedback"></div>
+
+  </aside>
+
+  <!-- ── RIGHT PANEL ─────────────────────────────────────────────────────── -->
+  <section class="right-panel">
+
+    <!-- Risk Chart -->
+    <div class="card chart-card">
+      <div class="chart-header">
+        <div class="card-title" style="margin-bottom:0">Risk Score Over Time</div>
+        <div class="chart-legend">
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#10b981"></div>Safe
+          </div>
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#f59e0b"></div>Warning
+          </div>
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#ef4444"></div>Danger
+          </div>
+          <span style="color:var(--text-muted);font-size:0.72rem">← 30 sec window</span>
+        </div>
+      </div>
+      <canvas id="riskCanvas"></canvas>
+    </div>
+
+    <!-- Live Event Log -->
+    <div class="card log-card">
+      <div class="card-title">Live Event Log</div>
+      <div id="logTerminal" class="log-terminal">
+        <div class="empty-log">Waiting for monitor events…</div>
+      </div>
+    </div>
+
+  </section>
+</div>
+
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
