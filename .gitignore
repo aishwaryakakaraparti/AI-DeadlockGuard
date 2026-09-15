@@ -31,3 +31,8 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# Reference & Local Benchmarks
+predictor/reference_repo/
+tests/test_model_10000_cases.py
+tests/test_model_expanded_tests.py

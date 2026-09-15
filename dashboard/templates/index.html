@@ -91,12 +91,18 @@
       </div>
     </div>
 
-    <!-- Resolve Button -->
-    <button id="resolveBtn" class="resolve-btn">
-      <span>⚡</span>
-      <span>Resolve Deadlock</span>
-    </button>
-    <div id="resolveFeedback" class="resolve-feedback"></div>
+    <!-- Action Controls -->
+    <div class="action-buttons">
+      <button id="createDeadlockBtn" class="create-btn" title="Simulates a multi-thread contention scenario that forms a circular wait deadlock in 10-15s and auto-resolves">
+        <span>💥</span>
+        <span>Create Deadlock</span>
+      </button>
+      <button id="resolveBtn" class="resolve-btn" title="Manually breaks any active deadlock cycle via SIGKILL">
+        <span>⚡</span>
+        <span>Resolve Deadlock</span>
+      </button>
+    </div>
+    <div id="actionFeedback" class="resolve-feedback"></div>
 
   </aside>
 

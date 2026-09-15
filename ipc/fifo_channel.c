@@ -79,7 +79,9 @@ int fifo_recv_event(int fd, ipc_event_t *ev) {
         return 0;  /* EOF */
     }
     if (n < 0) {
-        if (errno == EINTR) return -1;  /* interrupted */
+        if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+            return -1;  /* no data or interrupted */
+        }
         perror("fifo_recv_event: read");
         return -1;
     }

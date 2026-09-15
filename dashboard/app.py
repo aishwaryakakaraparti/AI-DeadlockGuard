@@ -91,6 +91,8 @@ def api_state():
     return jsonify(_build_state())
 
 
+INJECT_PATH = os.path.join(ROOT_DIR, 'status', 'inject_deadlock.trigger')
+
 @app.route('/api/resolve', methods=['POST'])
 def api_resolve():
     """Write the trigger file so the C monitor fires Phase 7 manual kill."""
@@ -99,6 +101,18 @@ def api_resolve():
         with open(RESOLVE_PATH, 'w') as f:
             f.write('1')
         return jsonify({'ok': True, 'message': 'Manual resolve triggered.'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/create-deadlock', methods=['POST'])
+def api_create_deadlock():
+    """Trigger a realistic deadlock injection sequence spanning 10-15 seconds."""
+    try:
+        os.makedirs(os.path.dirname(INJECT_PATH), exist_ok=True)
+        with open(INJECT_PATH, 'w') as f:
+            f.write(str(time.time()))
+        return jsonify({'ok': True, 'message': 'Deadlock creation sequence started. Will deadlock in 10-15 seconds.'})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 

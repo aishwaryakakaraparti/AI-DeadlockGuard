@@ -1,127 +1,226 @@
 #!/usr/bin/env python3
 """
-demo_mock.py — Demo mode data generator
+demo_mock.py — Demo mode data generator with On-Demand Deadlock Injection
 
 Writes mock features.json, heartbeat.json, risk.json, and monitor_events.log
-to the status/ and logs/ directories so the dashboard looks fully alive even
-when the C monitor and live_predict.py are not running.
+to the status/ and logs/ directories.
 
-Run this in a separate terminal alongside app.py for Windows demos:
-    python dashboard/demo_mock.py
+Features:
+- Standard background cycle: safe -> mild contention -> recovery
+- On-demand injection: when status/inject_deadlock.trigger is touched (via GUI button),
+  it executes a 10-15s sequence:
+    0-4s: Normal execution
+    4-8s: Contention build-up (risk rises to 65%)
+    8-11s: Circular wait forms! Deadlock detected (risk hits 94%, DEADLOCK banner flashes)
+    11-14s: Auto-detection and auto-resolution fires! (victim killed, cycle broken, returns to safe green)
+- Responds immediately if manual Resolve Deadlock trigger is detected.
 """
 
 import os
+import sys
 import json
 import time
-import math
 import random
 from datetime import datetime
 
-ROOT_DIR      = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-FEATURES_PATH = os.path.join(ROOT_DIR, 'status', 'features.json')
-HEARTBEAT_PATH= os.path.join(ROOT_DIR, 'status', 'heartbeat.json')
-RISK_PATH     = os.path.join(ROOT_DIR, 'status', 'risk.json')
-LOG_PATH      = os.path.join(ROOT_DIR, 'logs', 'monitor_events.log')
+# Prevent Windows console charmap encoding errors
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+ROOT_DIR            = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+FEATURES_PATH       = os.path.join(ROOT_DIR, 'status', 'features.json')
+HEARTBEAT_PATH      = os.path.join(ROOT_DIR, 'status', 'heartbeat.json')
+RISK_PATH           = os.path.join(ROOT_DIR, 'status', 'risk.json')
+LOG_PATH            = os.path.join(ROOT_DIR, 'logs', 'monitor_events.log')
+INJECT_TRIGGER_PATH = os.path.join(ROOT_DIR, 'status', 'inject_deadlock.trigger')
+RESOLVE_TRIGGER_PATH= os.path.join(ROOT_DIR, 'status', 'resolve.trigger')
+TMP_RESOLVE_PATH    = '/tmp/deadlock_guard.resolve'
 
 MAX_NODES = 64
 MAX_EDGES = MAX_NODES * (MAX_NODES - 1)
-
-RESOURCES = ['mutex_A', 'mutex_B', 'mutex_C', 'semaphore_1', 'semaphore_2', 'rwlock_X']
-EVENT_TYPES = ['WAIT', 'HOLD', 'RELEASE']
+RESOURCES = ['mutex_A', 'mutex_B', 'fork_0', 'fork_1', 'semaphore_1', 'rwlock_X']
 
 os.makedirs(os.path.join(ROOT_DIR, 'status'), exist_ok=True)
 os.makedirs(os.path.join(ROOT_DIR, 'logs'),   exist_ok=True)
 
-def scenario_cycle():
+def write_status(blocked, wg, edges, risk, status, action):
+    density = round(edges / MAX_EDGES, 6)
+    with open(FEATURES_PATH, 'w') as f:
+        json.dump({
+            'blocked_count':    blocked,
+            'wait_time_growth': round(wg, 4),
+            'edge_count':       edges,
+            'graph_density':    density,
+        }, f)
+
+    with open(HEARTBEAT_PATH, 'w') as f:
+        json.dump({'tick': int(time.time()), 'status': status}, f)
+
+    with open(RISK_PATH, 'w') as f:
+        json.dump({
+            'timestamp': datetime.now().isoformat(),
+            'risk_score': round(min(max(risk, 0.0), 1.0), 4),
+            'action': action,
+        }, f)
+
+def append_log(event_type, msg):
+    ts = datetime.now().strftime('[%H:%M:%S]')
+    with open(LOG_PATH, 'a', encoding='utf-8') as f:
+        f.write(f'{ts} {event_type} {msg}\n')
+
+def check_manual_resolve():
+    for p in [RESOLVE_TRIGGER_PATH, TMP_RESOLVE_PATH]:
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except:
+                pass
+            return True
+    return False
+
+def run_injected_deadlock_sequence():
     """
-    Simulate a realistic scenario cycle:
-      0–30s   : safe normal workload
-      30–60s  : rising contention
-      60–80s  : deadlock escalation
-      80–90s  : resolution
+    Executes a 12-14 second realistic deadlock scenario:
+    - 0-4s: Safe normal baseline
+    - 4-8s: Rapid contention spike (Thread A requests Mutex B)
+    - 8-11s: Circular wait forms! Deadlock detected (Thread B requests Mutex A)
+    - 11-14s: Auto-resolution breaks the deadlock cycle
     """
+    print("\n[demo_mock] [INJECT] INJECTING DEADLOCK SEQUENCE (10-15s auto-resolve)...")
+    pid_a = 4101
+    pid_b = 4102
+
+    append_log('MONITOR', f'Scenario initiated: Dining Philosophers 2-Thread Lock contention')
+    append_log('HOLD', f'pid={pid_a} resource=fork_0')
+    append_log('HOLD', f'pid={pid_b} resource=fork_1')
+
+    start = time.time()
+    deadlock_detected = False
+    resolved = False
+
+    while True:
+        elapsed = time.time() - start
+
+        # Check if user clicked manual resolve
+        if check_manual_resolve() and not resolved:
+            append_log('RESOLVE', f'Manual resolution signal received — killing waiting processes')
+            resolved = True
+            break
+
+        # Stage 1: 0 to 4 seconds — Safe baseline
+        if elapsed < 4.0:
+            write_status(
+                blocked=0,
+                wg=0.04,
+                edges=2,
+                risk=0.12,
+                status='running',
+                action='none'
+            )
+            if int(elapsed * 2) % 2 == 0:
+                append_log('MONITOR', f'Healthcheck: tick ok, active threads: [{pid_a}, {pid_b}]')
+
+        # Stage 2: 4 to 8 seconds — Contention escalates
+        elif elapsed < 8.0:
+            prog = (elapsed - 4.0) / 4.0
+            if prog > 0.1 and prog < 0.3:
+                append_log('WAIT', f'pid={pid_a} resource=fork_1 (held by pid={pid_b})')
+            write_status(
+                blocked=1,
+                wg=0.25 + prog * 0.45,
+                edges=3,
+                risk=0.35 + prog * 0.35, # climbing to 0.70
+                status='running',
+                action='none'
+            )
+
+        # Stage 3: 8 to 11 seconds — Circular wait completes! Deadlock!
+        elif elapsed < 11.5:
+            if not deadlock_detected:
+                deadlock_detected = True
+                append_log('WAIT', f'pid={pid_b} resource=fork_0 (held by pid={pid_a})')
+                append_log('DEADLOCK', f'Cycle detected: [pid {pid_a} -> fork_1 -> pid {pid_b} -> fork_0 -> pid {pid_a}]')
+                append_log('DEADLOCK', f'AI Ensemble score: 94.2% — Imminent deadlock threshold crossed!')
+
+            write_status(
+                blocked=2,
+                wg=1.15,
+                edges=4,
+                risk=0.94,
+                status='deadlock',
+                action='triggered_resolution'
+            )
+
+        # Stage 4: 11.5 to 14 seconds — Auto-resolution executed!
+        elif elapsed < 14.0:
+            if not resolved:
+                resolved = True
+                append_log('RESOLVE', f'Auto-detector selected victim pid={pid_b} (cycle breaker)')
+                append_log('RESOLVE', f'SIGKILL sent to victim pid={pid_b} — WFG cycle broken')
+                append_log('RELEASE', f'resource=fork_1 released by kernel')
+                append_log('HOLD', f'pid={pid_a} acquired resource=fork_1, thread resumed')
+
+            write_status(
+                blocked=0,
+                wg=0.03,
+                edges=1,
+                risk=0.08,
+                status='running',
+                action='none'
+            )
+        else:
+            break
+
+        time.sleep(0.4)
+
+    # Wrap up resolution
+    write_status(blocked=0, wg=0.0, edges=0, risk=0.05, status='running', action='none')
+    append_log('MONITOR', f'System state restored: Normal execution active.')
+    print("[demo_mock] [RESOLVED] Deadlock successfully auto-detected and resolved!\n")
+
+def main():
+    print("=" * 60)
+    print("  AI-DeadlockGuard — Telemetry Generator")
+    print("  Listening for GUI 'Create Deadlock' and 'Resolve' triggers...")
+    print("=" * 60)
+
+    # Initialize log
+    with open(LOG_PATH, 'w', encoding='utf-8') as f:
+        f.write(f"{datetime.now().strftime('[%H:%M:%S]')} MONITOR AI-DeadlockGuard daemon started.\n")
+
     t = 0
-    tick = 0
-    log_f = open(LOG_PATH, 'w')
+    while True:
+        # Check if GUI requested a deadlock injection
+        if os.path.exists(INJECT_TRIGGER_PATH):
+            try:
+                os.remove(INJECT_TRIGGER_PATH)
+            except:
+                pass
+            run_injected_deadlock_sequence()
+            t = 0
+            continue
 
-    def write_log(event_type, pid, resource):
-        ts = datetime.now().strftime('[%H:%M:%S]')
-        log_f.write(f'{ts} {event_type} pid={pid} resource={resource}\n')
-        log_f.flush()
+        # Check if GUI requested manual resolve
+        if check_manual_resolve():
+            append_log('RESOLVE', 'Manual resolution trigger cleared graph.')
+            write_status(0, 0.0, 0, 0.04, 'running', 'none')
 
-    try:
-        while True:
-            phase = t % 90
+        # Normal background low-risk baseline
+        blocked = 0 if random.random() > 0.2 else 1
+        edges = random.randint(1, 4)
+        wg = round(random.uniform(0.0, 0.08), 4)
+        risk = round(random.uniform(0.04, 0.16), 4)
 
-            if phase < 30:
-                # Safe
-                blocked   = random.randint(0, 1)
-                edge_count= random.randint(2, 6)
-                wg        = round(random.uniform(0.0, 0.15), 4)
-                risk      = random.uniform(0.02, 0.15)
-                status    = 'running'
-                evt       = random.choice(['WAIT', 'HOLD', 'RELEASE'])
-            elif phase < 60:
-                # Contention
-                prog      = (phase - 30) / 30
-                blocked   = int(1 + prog * 3)
-                edge_count= int(6 + prog * 10)
-                wg        = round(0.2 + prog * 0.6, 4)
-                risk      = 0.2 + prog * 0.5
-                status    = 'running'
-                evt       = random.choice(['WAIT', 'HOLD', 'WAIT', 'HOLD'])
-            elif phase < 80:
-                # Deadlock
-                prog      = (phase - 60) / 20
-                blocked   = int(3 + prog * 3)
-                edge_count= int(16 + prog * 8)
-                wg        = round(0.8 + prog * 0.8, 4)
-                risk      = 0.75 + prog * 0.24
-                status    = 'deadlock'
-                evt       = random.choice(['WAIT', 'HOLD', 'DEADLOCK'])
-            else:
-                # Resolution
-                blocked   = 0
-                edge_count= random.randint(1, 3)
-                wg        = round(random.uniform(0.0, 0.05), 4)
-                risk      = random.uniform(0.01, 0.1)
-                status    = 'running'
-                evt       = 'RELEASE'
+        write_status(blocked, wg, edges, risk, 'running', 'none')
 
-            density = round(edge_count / MAX_EDGES, 6)
-            pid     = random.randint(1000, 9999)
-            resource= random.choice(RESOURCES)
+        if int(t) % 4 == 0:
+            res = random.choice(RESOURCES)
+            p = random.randint(2100, 2199)
+            evt = random.choice(['HOLD', 'RELEASE', 'HOLD'])
+            append_log(evt, f'pid={p} resource={res}')
 
-            # Write status files
-            with open(FEATURES_PATH, 'w') as f:
-                json.dump({
-                    'blocked_count':    blocked,
-                    'wait_time_growth': wg,
-                    'edge_count':       edge_count,
-                    'graph_density':    density,
-                }, f)
-
-            with open(HEARTBEAT_PATH, 'w') as f:
-                json.dump({'tick': tick, 'status': status}, f)
-
-            action = 'triggered_resolution' if status == 'deadlock' and risk >= 0.75 else 'none'
-            with open(RISK_PATH, 'w') as f:
-                json.dump({
-                    'timestamp': datetime.now().isoformat(),
-                    'risk_score': round(min(risk, 1.0), 4),
-                    'action': action,
-                }, f)
-
-            write_log(evt, pid, resource)
-
-            tick += 1
-            t    += 0.5
-            time.sleep(0.5)
-    finally:
-        log_f.close()
+        t += 0.5
+        time.sleep(0.5)
 
 if __name__ == '__main__':
-    print("AI-DeadlockGuard  —  Demo Mock Data Generator")
-    print("Simulating realistic OS telemetry every 500ms...")
-    print("Press Ctrl+C to stop.\n")
-    scenario_cycle()
+    main()

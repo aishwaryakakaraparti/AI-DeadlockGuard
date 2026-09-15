@@ -37,7 +37,7 @@
 #include "../../ipc/event_protocol.h"
 
 /* ── Configuration ───────────────────────────────────────────────────────── */
-#define POLL_INTERVAL_MS   500          /* feature extraction cadence        */
+#define POLL_INTERVAL_MS   50          /* feature extraction cadence        */
 #define FEATURES_PATH_DEFAULT "status/features.json"
 #define HEARTBEAT_PATH    "status/heartbeat.json"
 

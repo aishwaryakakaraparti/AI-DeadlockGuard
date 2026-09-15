@@ -22,10 +22,10 @@ HEARTBEAT_PATH = os.path.join(ROOT_DIR, 'status', 'heartbeat.json')
 CSV_OUT = os.path.join(ROOT_DIR, 'predictor', 'data', 'training_data.csv')
 
 SCENARIOS = {
-    'circular_wait_ipc': {'runs': 30, 'expected_deadlock': True},
-    'dining_philosophers': {'runs': 30, 'expected_deadlock': True},
-    'dining_philosophers_fixed': {'runs': 30, 'expected_deadlock': False},
-    'high_contention': {'runs': 30, 'expected_deadlock': False},
+    'circular_wait_ipc': {'runs': 5, 'expected_deadlock': True},
+    'dining_philosophers': {'runs': 5, 'expected_deadlock': True},
+    'dining_philosophers_fixed': {'runs': 5, 'expected_deadlock': False},
+    'high_contention': {'runs': 5, 'expected_deadlock': False},
 }
 
 def clear_status_files():
@@ -56,9 +56,18 @@ def run_simulation():
         for run_idx in range(config['runs']):
             clear_status_files()
             
+            # Use WSL if running on Windows
+            import sys
+            monitor_cmd = [MONITOR_BIN, '--features-path', FEATURES_PATH]
+            scenario_cmd = [scenario_bin]
+            if sys.platform == 'win32':
+                # Convert Windows paths to WSL paths or just rely on wsl mapping
+                monitor_cmd = ['wsl', '-d', 'Ubuntu', './monitor/build/monitor', '--features-path', 'status/features.json']
+                scenario_cmd = ['wsl', '-d', 'Ubuntu', f'./harness/build/{scenario}']
+
             # Start monitor
             monitor_proc = subprocess.Popen(
-                [MONITOR_BIN, '--features-path', FEATURES_PATH],
+                monitor_cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
@@ -66,7 +75,7 @@ def run_simulation():
             
             # Start scenario
             scenario_proc = subprocess.Popen(
-                [scenario_bin],
+                scenario_cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
@@ -86,6 +95,13 @@ def run_simulation():
                 heartbeat = read_json(HEARTBEAT_PATH)
                 if heartbeat and heartbeat.get('status') == 'deadlock':
                     deadlock_occurred = True
+                    time.sleep(0.2)
+                    
+                    # Grab one last snapshot before breaking
+                    features = read_json(FEATURES_PATH)
+                    if features and (not snapshots or snapshots[-1] != features):
+                        snapshots.append(features)
+                    
                     break
                 
                 # Check if scenario finished (clean exit)
@@ -124,11 +140,13 @@ def run_simulation():
     os.makedirs(os.path.dirname(CSV_OUT), exist_ok=True)
     df = pd.DataFrame(all_data)
     
-    # Simple jitter to prevent duplicate exact rows from dominating, helping tree models generalize better
-    df['wait_time_growth'] += [random.uniform(-0.01, 0.01) for _ in range(len(df))]
-    
-    df.to_csv(CSV_OUT, index=False)
-    print(f"\nSaved {len(df)} feature snapshots to {CSV_OUT}")
+    if len(df) > 0:
+        # Simple jitter to prevent duplicate exact rows from dominating, helping tree models generalize better
+        df['wait_time_growth'] += [random.uniform(-0.01, 0.01) for _ in range(len(df))]
+        df.to_csv(CSV_OUT, index=False)
+        print(f"\nSaved {len(df)} feature snapshots to {CSV_OUT}")
+    else:
+        print("\nNo data collected!")
 
 if __name__ == "__main__":
     run_simulation()

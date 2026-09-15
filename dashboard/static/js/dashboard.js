@@ -378,38 +378,81 @@ const SSEClient = (() => {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   5. RESOLVE BUTTON
+   5. ACTION BUTTONS (CREATE DEADLOCK & RESOLVE)
    ═══════════════════════════════════════════════════════════════════════════ */
-function initResolveButton() {
-  const btn      = document.getElementById('resolveBtn');
-  const feedback = document.getElementById('resolveFeedback');
+function initActionButtons() {
+  const createBtn  = document.getElementById('createDeadlockBtn');
+  const resolveBtn = document.getElementById('resolveBtn');
+  const feedback   = document.getElementById('actionFeedback') || document.getElementById('resolveFeedback');
 
-  if (!btn) return;
-
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    feedback.textContent = 'Sending resolve signal…';
-    feedback.className   = 'resolve-feedback';
-    try {
-      const res  = await fetch('/api/resolve', { method: 'POST' });
-      const data = await res.json();
-      if (data.ok) {
-        feedback.textContent = '✓ Resolve signal sent.';
-        feedback.className   = 'resolve-feedback ok';
-      } else {
-        feedback.textContent = `✗ ${data.error}`;
-        feedback.className   = 'resolve-feedback err';
+  if (createBtn) {
+    createBtn.addEventListener('click', async () => {
+      createBtn.disabled = true;
+      createBtn.classList.add('running');
+      createBtn.innerHTML = '<span>⏳</span><span>Injecting (14s)...</span>';
+      if (feedback) {
+        feedback.textContent = 'Contention initiated. Deadlock forming in 10-15s...';
+        feedback.className   = 'resolve-feedback';
       }
-    } catch (e) {
-      feedback.textContent = '✗ Network error.';
-      feedback.className   = 'resolve-feedback err';
-    }
-    setTimeout(() => {
-      btn.disabled = false;
-      feedback.textContent = '';
-      feedback.className   = 'resolve-feedback';
-    }, 3500);
-  });
+
+      try {
+        await fetch('/api/create-deadlock', { method: 'POST' });
+      } catch (e) {
+        console.error('Failed to trigger deadlock creation:', e);
+      }
+
+      // Live countdown over 14 seconds
+      let remaining = 14;
+      const timer = setInterval(() => {
+        remaining -= 1;
+        if (remaining > 5) {
+          createBtn.innerHTML = `<span>⏳</span><span>Contention Escalating (${remaining}s)...</span>`;
+        } else if (remaining > 2) {
+          createBtn.innerHTML = `<span>🚨</span><span>Deadlocked! Auto-resolving (${remaining}s)...</span>`;
+        } else if (remaining <= 0) {
+          clearInterval(timer);
+          createBtn.disabled = false;
+          createBtn.classList.remove('running');
+          createBtn.innerHTML = '<span>💥</span><span>Create Deadlock</span>';
+          if (feedback) {
+            feedback.textContent = '✓ Deadlock auto-detected and broken successfully!';
+            feedback.className   = 'resolve-feedback ok';
+            setTimeout(() => { if (feedback) feedback.textContent = ''; }, 4000);
+          }
+        }
+      }, 1000);
+    });
+  }
+
+  if (resolveBtn) {
+    resolveBtn.addEventListener('click', async () => {
+      resolveBtn.disabled = true;
+      if (feedback) {
+        feedback.textContent = 'Sending manual resolve signal…';
+        feedback.className   = 'resolve-feedback';
+      }
+      try {
+        const res  = await fetch('/api/resolve', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok && feedback) {
+          feedback.textContent = '✓ Resolve signal sent (cycle broken).';
+          feedback.className   = 'resolve-feedback ok';
+        } else if (feedback) {
+          feedback.textContent = `✗ ${data.error}`;
+          feedback.className   = 'resolve-feedback err';
+        }
+      } catch (e) {
+        if (feedback) {
+          feedback.textContent = '✗ Network error.';
+          feedback.className   = 'resolve-feedback err';
+        }
+      }
+      setTimeout(() => {
+        resolveBtn.disabled = false;
+        if (feedback) feedback.textContent = '';
+      }, 3500);
+    });
+  }
 }
 
 
@@ -421,7 +464,7 @@ document.addEventListener('DOMContentLoaded', () => {
   RiskGauge.init();
   RiskChart.init();
   SSEClient.init();
-  initResolveButton();
+  initActionButtons();
 
   // Redraw chart on theme change so gradient colours update
   document.querySelectorAll('.theme-btn').forEach(btn => {
